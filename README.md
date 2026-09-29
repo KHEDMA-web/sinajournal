@@ -33,9 +33,12 @@ App **Raccourcis → Automatisation → + → Heure de la journée**
 ## Personnaliser
 Tout est en haut de `journal.py` :
 - `TITRE`, `DEVISE`, `EDITION` : le nom du journal (partie grasse + partie italique) ;
-- `VILLE` : la météo et les horaires de prière (mets les coordonnées de ta ville) ;
+- `VILLE`, `FUSEAU` : la météo et les horaires de prière ;
 - `METHODE_PRIERE` : méthode de calcul (19 = Algérie ; 12 = UOIF France, 3 = Ligue islamique mondiale) ;
 - `NIVEAU_ANGLAIS`, `NIVEAU_ESPAGNOL` : le niveau des leçons ;
+- `MODELE`, `EFFORT` : le modèle Claude et le soin apporté à la rédaction ;
+- `DATE_PREMIER_NUMERO` : le point de départ de la numérotation ;
+- `RUBRIQUES` : le nombre d’articles développés et la ligne éditoriale de chaque rubrique ;
 - `SOURCES` : les flux RSS de chaque rubrique (une source en panne n'empêche pas le reste).
 
 Mise en page inspirée de Signal Matin (github.com/sosoj92/signal-matin, licence MIT).

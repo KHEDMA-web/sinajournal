@@ -1,4 +1,5 @@
 anthropic
+chess
 ebooklib
 feedparser
 requests

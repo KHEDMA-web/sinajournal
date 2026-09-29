@@ -2,4 +2,5 @@ anthropic
 chess
 ebooklib
 feedparser
+pillow
 requests

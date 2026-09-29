@@ -12,6 +12,7 @@ import re
 import sys
 import threading
 import uuid
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -22,6 +23,7 @@ import chess.svg
 import feedparser
 import requests
 from ebooklib import epub
+from PIL import Image, ImageDraw, ImageFont
 
 # ═════════════════════════════════ CONFIGURATION ═════════════════════════════════
 
@@ -482,40 +484,75 @@ def donnees_citations(date_texte):
 
 # ═══════════════════════════════════ MISE EN PAGE ═══════════════════════════════════
 
-CSS = """
-body { font-family: Georgia, "Times New Roman", serif; line-height: 1.5; margin: 0 4%;
-       color: #111; }
-.masthead { text-align: center; border-bottom: 3px double #111; padding-bottom: .4em;
-            margin-bottom: .8em; }
-.masthead h1 { font-size: 2.8em; margin: .1em 0 0; line-height: 1.1; }
-.masthead h1 b { font-weight: 900; }
-.masthead h1 i { font-weight: 400; }
-.devise { font-style: italic; font-size: .9em; margin: .2em 0 .5em; }
-.bandeau { font-size: .72em; text-transform: uppercase; letter-spacing: .1em;
-           border-top: 1px solid #111; border-bottom: 1px solid #111; padding: .3em 0; }
-.manchette { font-size: 1.7em; line-height: 1.15; margin: .6em 0 .2em; }
-h2 { font-size: 1em; text-transform: uppercase; letter-spacing: .14em;
-     border-top: 3px solid #111; border-bottom: 1px solid #111; padding: .2em 0;
-     margin: 1.6em 0 .8em; }
-h3 { font-size: 1.25em; line-height: 1.2; margin: 1.1em 0 .2em; }
-h4 { font-size: .8em; text-transform: uppercase; letter-spacing: .1em; margin: 1.2em 0 .3em; }
-.chapeau { font-weight: bold; margin: .2em 0 .5em; }
-.source { font-size: .72em; color: #666; text-transform: uppercase; letter-spacing: .06em; }
-p.lettrine::first-letter { float: left; font-size: 3.2em; line-height: .8;
-                           padding: .08em .08em 0 0; font-weight: bold; }
-.filet { border: 0; border-top: 1px solid #111; margin: 1.2em 30%; }
-.encadre { border: 1px solid #111; padding: .5em .8em; margin: .9em 0; }
-.encadre h4 { margin-top: 0; }
-.breve { margin: .4em 0; }
-table { width: 100%; border-collapse: collapse; }
-td { padding: .15em .3em; border-bottom: 1px dotted #999; vertical-align: top; }
-td.h { text-align: right; }
-.ar { direction: rtl; text-align: right; font-size: 1.3em; line-height: 1.8; }
-.vo { font-style: italic; }
-.note { font-size: .78em; color: #555; }
-.centre { text-align: center; }
-ol.choix { list-style-type: upper-alpha; }
-a { color: inherit; }
+# Polices présentes sur iPhone/iPad (Apple Livres), avec des équivalents de secours.
+TITRAILLE = '"Didot", "Bodoni 72", "Playfair Display", Georgia, serif'
+LABEUR = '"Iowan Old Style", "Palatino", "Book Antiqua", Georgia, serif'
+BATON = '"Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif'
+
+# Couleurs en currentColor / opacité : la page reste lisible avec les thèmes
+# Blanc, Sépia et Nuit d'Apple Livres.
+CSS = f"""
+body {{ font-family: {LABEUR}; line-height: 1.45; margin: 0; padding: 0 .2em;
+       text-align: justify; -webkit-hyphens: auto; hyphens: auto;
+       overflow-wrap: break-word; word-wrap: break-word; }}
+p {{ margin: 0 0 .55em; }}
+h1, h2, h3, h4, .centre, .manchette, .chapeau, .masthead, .sommaire {{
+  text-align: left; -webkit-hyphens: manual; hyphens: manual; }}
+
+.masthead {{ text-align: center; margin: .4em 0 1.1em; }}
+.nom {{ font-family: {TITRAILLE}; font-size: 3.3em; line-height: 1; margin: 0;
+        text-align: center; font-weight: normal; letter-spacing: -.01em; }}
+.nom b {{ font-weight: bold; }}
+.devise {{ font-style: italic; font-size: .85em; text-align: center; margin: .35em 0 .7em; }}
+.bandeau {{ font-family: {BATON}; font-size: .6em; font-weight: 600; text-transform: uppercase;
+            letter-spacing: .14em; text-align: center; line-height: 1.6;
+            border-top: 3px double currentColor; border-bottom: 1px solid currentColor;
+            padding: .5em 0; }}
+
+.manchette {{ font-family: {TITRAILLE}; font-size: 2.1em; line-height: 1.05; font-weight: bold;
+              margin: .2em 0 .35em; }}
+h2 {{ font-family: {BATON}; font-size: .7em; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .24em; border-top: 4px solid currentColor; padding-top: .55em;
+      margin: 0 0 1.4em; }}
+h3 {{ font-family: {TITRAILLE}; font-size: 1.55em; line-height: 1.1; font-weight: bold;
+      margin: 1.3em 0 .3em; page-break-after: avoid; }}
+h4 {{ font-family: {BATON}; font-size: .66em; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .16em; margin: 1.5em 0 .5em; page-break-after: avoid; }}
+.chapeau {{ font-size: 1.08em; font-style: italic; line-height: 1.35; margin: 0 0 .8em; }}
+.source {{ font-family: {BATON}; font-size: .6em; text-transform: uppercase;
+           letter-spacing: .12em; opacity: .6; margin: 0 0 .5em; }}
+p.lettrine::first-letter {{ font-family: {TITRAILLE}; float: left; font-size: 3.5em;
+  line-height: .82; font-weight: bold; margin: .06em .08em 0 0; }}
+.fleuron {{ text-align: center; letter-spacing: .6em; opacity: .5; margin: 1.4em 0; }}
+
+.encadre {{ border-top: 2px solid currentColor; border-bottom: 1px solid currentColor;
+            padding: .7em 0 .4em; margin: 1.4em 0; page-break-inside: avoid; }}
+.encadre h4 {{ margin-top: 0; }}
+.duo {{ font-size: .95em; }}
+.breve {{ margin: 0 0 .6em; }}
+.puce {{ font-family: {BATON}; font-size: .7em; opacity: .7; }}
+.gros {{ font-family: {TITRAILLE}; font-size: 1.9em; font-weight: bold; line-height: 1;
+         text-align: left; margin: .1em 0 .2em; }}
+
+table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
+td {{ padding: .3em .2em; border-bottom: 1px solid rgba(128, 128, 128, .35);
+      vertical-align: top; text-align: left; }}
+table.prieres td {{ border: 0; text-align: center; padding: .1em 0; }}
+table.prieres .p-nom {{ font-family: {BATON}; font-size: .55em; font-weight: 600;
+                        text-transform: uppercase; letter-spacing: .06em; opacity: .7; }}
+table.prieres .p-heure {{ font-size: 1.05em; font-weight: bold; }}
+
+.ar {{ direction: rtl; text-align: right; font-size: 1.35em; line-height: 1.9;
+       overflow-wrap: break-word; }}
+.vo {{ font-style: italic; }}
+.note {{ font-size: .78em; opacity: .7; }}
+.centre {{ text-align: center; }}
+.sommaire p {{ margin: 0; padding: .35em 0; border-bottom: 1px solid rgba(128, 128, 128, .35);
+              font-family: {BATON}; font-size: .85em; }}
+.sommaire a {{ text-decoration: none; }}
+ol.choix {{ list-style-type: upper-alpha; margin: .2em 0 1em; }}
+a {{ color: inherit; }}
+img {{ max-width: 100%; }}
 """
 
 
@@ -533,9 +570,9 @@ def paragraphes(blocs, lettrine=True):
 
 def page_une(c):
     pri, met, une, verset = c["priere"], c["meteo"], c["une"], c["verset"]
-    hegire = f" · {e(pri['hegire'])}" if pri else ""
+    hegire = f"<br/>{e(pri['hegire'])}" if pri else ""
     b = [f"""<div class="masthead">
-<h1><b>{e(TITRE[0])}</b> <i>{e(TITRE[1])}</i></h1>
+<p class="nom"><b>{e(TITRE[0])}</b> <i>{e(TITRE[1])}</i></p>
 <p class="devise">{e(DEVISE)}</p>
 <div class="bandeau">N° {c['numero']} · {e(c['date_texte'])}{hegire} · {e(EDITION)}</div>
 </div>"""]
@@ -545,40 +582,42 @@ def page_une(c):
                  f"<p class='chapeau'>{e(m['chapeau'])}</p>")
         if une["essentiel"]:
             b.append("<h4>L'essentiel</h4>" + "".join(
-                f"<p class='breve'>■ {e(p)}</p>" for p in une["essentiel"]))
+                f"<p class='breve'><span class='puce'>■</span> {e(p)}</p>"
+                for p in une["essentiel"]))
     if pri:
-        lignes = "".join(f"<tr><td>{e(n)}</td><td class='h'>{h}</td></tr>"
-                         for n, h in pri["horaires"])
+        noms = "".join(f"<td class='p-nom'>{e(n)}</td>" for n, _ in pri["horaires"])
+        heures = "".join(f"<td class='p-heure'>{h}</td>" for _, h in pri["horaires"])
         extra = ""
         if pri["ramadan"]:
             r = pri["ramadan"]
-            extra += (f"<p><b>Ramadan · jour {r['jour']} · Imsak {r['imsak']} · "
+            extra += (f"<p class='centre'><b>Ramadan · jour {r['jour']} · Imsak {r['imsak']} · "
                       f"Iftar {r['iftar']}</b></p>")
         if pri["vendredi"]:
-            extra += "<p>Joumou'a moubaraka. Pense à la lecture de la sourate Al-Kahf.</p>"
+            extra += ("<p class='centre'>Joumou'a moubaraka. "
+                      "Pense à la lecture de la sourate Al-Kahf.</p>")
         b.append(f"""<div class="encadre"><h4>Prières — {e(VILLE['nom'])}</h4>
-<table>{lignes}</table>{extra}
-<p class="note">Date hégirienne calculée : elle peut différer d'un jour de l'annonce
-officielle.</p></div>""")
+<table class="prieres"><tr>{noms}</tr><tr>{heures}</tr></table>{extra}
+<p class="note centre">Date hégirienne calculée : elle peut différer d'un jour de
+l'annonce officielle.</p></div>""")
     if met:
         b.append(f"""<div class="encadre"><h4>Météo — {e(VILLE['nom'])}</h4>
-<p>{e(met['ciel'])}, {met['min']}° / {met['max']}°. Pluie : {met['pluie']} %.
-Vent : {met['vent']} km/h.</p></div>""")
+<p class="gros">{met['min']}° / {met['max']}°</p>
+<p>{e(met['ciel'])} · pluie {met['pluie']} % · vent {met['vent']} km/h</p></div>""")
     if verset:
         b.append(f"""<div class="encadre"><h4>Verset du jour</h4>
 <p class="ar" lang="ar">{e(verset['arabe'])}</p>
 <p class="vo">{e(verset['francais'])}</p>
-<p class="note">{e(verset['reference'])} — trad. Hamidullah</p></div>""")
+<p class="source">{e(verset['reference'])} — trad. Hamidullah</p></div>""")
     if une:
         mot, chiffre = une["mot_du_jour"], une["chiffre_du_jour"]
-        b.append(f"""<div class="encadre"><h4>Question du matin</h4>
-<p>{e(une['question_du_matin'])}</p></div>
-<div class="encadre"><h4>Mot du jour</h4><p><b>{e(mot['mot'])}</b> — {e(mot['definition'])}</p></div>
-<div class="encadre"><h4>Chiffre du jour</h4><p><b>{e(chiffre['chiffre'])}</b> —
-{e(chiffre['explication'])}</p></div>
+        b.append(f"""<div class="encadre"><h4>Chiffre du jour</h4>
+<p class="gros">{e(chiffre['chiffre'])}</p><p>{e(chiffre['explication'])}</p></div>
+<div class="encadre"><h4>Mot du jour</h4>
+<p><b>{e(mot['mot'])}</b> — {e(mot['definition'])}</p></div>
+<div class="encadre"><h4>Question du matin</h4><p class="vo">{e(une['question_du_matin'])}</p></div>
 <div class="encadre"><h4>Intention du jour</h4><p>{e(une['intention_du_jour'])}</p></div>""")
-    b.append("<h4>Sommaire</h4>" + "".join(
-        f"<p class='breve'>{e(t)}</p>" for t in c["sommaire"]))
+    b.append("<h4>Sommaire</h4><div class='sommaire'>" + "".join(
+        f"<p><a href='{fichier}'>{e(t)}</a></p>" for t, fichier in c["sommaire"]) + "</div>")
     return "\n".join(b)
 
 
@@ -590,7 +629,7 @@ def page_actu(nom, d):
         return "\n".join(b)
     for i, a in enumerate(d["articles"]):
         if i:
-            b.append("<hr class='filet'/>")
+            b.append("<p class='fleuron'>◆ ◆ ◆</p>")
         b.append(f"<h3>{e(a['titre'])}</h3>")
         if a["source"]:
             b.append(f"<p class='source'>{e(a['source'])}</p>")
@@ -702,6 +741,121 @@ def page_solutions(echecs, quiz):
     return "\n".join(b)
 
 
+# ═══════════════════════════════════ COUVERTURE ═══════════════════════════════════
+
+OPTIONS_APPLE = """<?xml version="1.0" encoding="UTF-8"?>
+<display_options><platform name="*"><option name="specified-fonts">true</option></platform>
+</display_options>"""
+
+POLICES = {  # Playfair Display (licence OFL), téléchargée à chaque génération
+    "romain": "https://raw.githubusercontent.com/google/fonts/main/ofl/playfairdisplay/"
+              "PlayfairDisplay%5Bwght%5D.ttf",
+    "italique": "https://raw.githubusercontent.com/google/fonts/main/ofl/playfairdisplay/"
+                "PlayfairDisplay-Italic%5Bwght%5D.ttf",
+}
+POLICES_SECOURS = {"romain": "DejaVuSerif-Bold.ttf", "italique": "DejaVuSerif-Italic.ttf"}
+_polices = {}
+
+
+def police(style, taille, graisse=400):
+    if style not in _polices:
+        try:
+            r = requests.get(POLICES[style], headers=HTTP, timeout=20)
+            r.raise_for_status()
+            _polices[style] = r.content
+        except Exception as err:
+            log(f"  ✗ Police {style} : {err}")
+            _polices[style] = None
+    try:
+        if _polices[style]:
+            f = ImageFont.truetype(io.BytesIO(_polices[style]), taille)
+            try:
+                f.set_variation_by_axes([graisse])
+            except Exception:
+                pass
+            return f
+        return ImageFont.truetype(POLICES_SECOURS[style], taille)
+    except Exception:
+        return ImageFont.load_default(taille)
+
+
+def pri_hegire(pri):
+    return pri["hegire"] if pri else ""
+
+
+def couverture(numero, date_texte, hegire, manchette, essentiel=()):
+    """Image de couverture façon une de journal (PNG), ou None en cas d'échec."""
+    try:
+        L, H, marge = 1200, 1800, 90
+        papier, encre = (246, 242, 233), (20, 20, 20)
+        img = Image.new("RGB", (L, H), papier)
+        d = ImageDraw.Draw(img)
+
+        def centre(texte, y, f):
+            d.text(((L - d.textlength(texte, font=f)) / 2, y), texte, font=f, fill=encre)
+
+        def filet(y, epaisseur=3):
+            d.rectangle([marge, y, L - marge, y + epaisseur], fill=encre)
+
+        filet(110, 10)
+        a, b = TITRE[0] + " ", TITRE[1]
+        taille = 210
+        while True:  # le titre doit tenir entre les marges
+            gras, ital = police("romain", taille, 900), police("italique", taille, 400)
+            largeur = d.textlength(a, font=gras) + d.textlength(b, font=ital)
+            if largeur <= L - 2 * marge or taille <= 60:
+                break
+            taille -= 10
+        x = (L - largeur) / 2
+        d.text((x, 170), a, font=gras, fill=encre)
+        d.text((x + d.textlength(a, font=gras), 170), b, font=ital, fill=encre)
+        centre(DEVISE, 440, police("italique", 38))
+        filet(515, 6)
+        petite = police("romain", 32, 600)
+        centre(f"N° {numero}  ·  {date_texte.upper()}", 540, petite)
+        centre(f"{hegire}  ·  {EDITION}".strip(" ·").upper(), 590, petite)
+        filet(650, 2)
+
+        def couper(texte, f, largeur):
+            lignes, ligne = [], ""
+            for mot in texte.split():
+                essai = f"{ligne} {mot}".strip()
+                if d.textlength(essai, font=f) > largeur and ligne:
+                    lignes.append(ligne)
+                    ligne = mot
+                else:
+                    ligne = essai
+            return lignes + [ligne]
+
+        y = 730
+        if manchette:
+            f = police("romain", 92, 800)
+            for ligne in couper(manchette, f, L - 2 * marge)[:5]:
+                d.text((marge, y), ligne, font=f, fill=encre)
+                y += 112
+        f = police("italique", 40)
+        for point in essentiel[:3]:
+            lignes = couper(point, f, L - 2 * marge - 50)
+            if y + 60 * len(lignes) > H - 220:
+                break
+            y += 40
+            d.text((marge, y + 8), "■", font=police("romain", 26), fill=encre)
+            for ligne in lignes:
+                d.text((marge + 50, y), ligne, font=f, fill=encre)
+                y += 56
+
+        filet(H - 170, 2)
+        centre("À LA UNE · MONDE · ALGÉRIE · DOSSIER · LANGUES · JEUX", H - 140,
+               police("romain", 30, 600))
+        filet(H - 90, 10)
+        sortie = io.BytesIO()
+        img.save(sortie, "PNG", optimize=True)
+        return sortie.getvalue()
+    except Exception as err:
+        log(f"  ✗ Couverture : {err}")
+        return None
+
+
 # ═══════════════════════════════════ ASSEMBLAGE ═══════════════════════════════════
 
 def chapitre(nom_fichier, titre, corps):
@@ -783,13 +937,18 @@ def main():
                       page_ce_jour(ce_jour, f"{jour.day} {MOIS[jour.month - 1]}")))
     if echecs or quiz:
         pages.append(("Solutions", page_solutions(echecs, quiz)))
-    c["sommaire"] = [titre for titre, _ in pages]
+    c["sommaire"] = [(titre, f"page{i:02d}.xhtml") for i, (titre, _) in enumerate(pages, 1)]
 
     livre = epub.EpubBook()
     livre.set_identifier(str(uuid.uuid4()))
     livre.set_title(f"{TITRE[0]} {TITRE[1]} n° {numero} — {date_texte}")
     livre.set_language("fr")
     livre.add_author(f"{TITRE[0]} {TITRE[1]}")
+    une = c["une"] or {}
+    image = couverture(numero, date_texte, pri_hegire(c["priere"]),
+                       une.get("manchette", {}).get("titre", ""), une.get("essentiel", []))
+    if image:
+        livre.set_cover("couverture.png", image, create_page=False)
     livre.add_item(epub.EpubItem(uid="style", file_name="style.css",
                                  media_type="text/css", content=CSS))
     if echecs:
@@ -809,6 +968,9 @@ def main():
 
     SORTIE.mkdir(exist_ok=True)
     epub.write_epub(str(SORTIE / "journal.epub"), livre)
+    # Demande à Apple Livres de respecter nos polices au lieu d'imposer les siennes.
+    with zipfile.ZipFile(SORTIE / "journal.epub", "a") as z:
+        z.writestr("META-INF/com.apple.ibooks.display-options.xml", OPTIONS_APPLE)
     (SORTIE / "index.html").write_text(
         f"<!doctype html><meta charset='utf-8'><title>{e(TITRE[0])} {e(TITRE[1])}</title>"
         f"<p><a href='journal.epub'>{e(TITRE[0])} {e(TITRE[1])} n° {numero} — "

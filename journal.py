@@ -345,6 +345,58 @@ def donnees_ce_jour(jour):
     return {"evenements": evenements, "naissances": naissances}
 
 
+def donnees_tableau(jour, date_texte):
+    """Un grand tableau du domaine public (Art Institute of Chicago), différent chaque jour."""
+    entetes = {**HTTP, "User-Agent": "Mozilla/5.0 " + HTTP["User-Agent"],
+               "AIC-User-Agent": HTTP["User-Agent"]}
+    recherche = ("https://api.artic.edu/api/v1/artworks/search"
+                 "?query[bool][must][][term][is_public_domain]=true"
+                 "&query[bool][must][][term][artwork_type_id]=1"
+                 "&query[bool][must][][term][is_boosted]=true"
+                 "&fields=id,title,artist_display,date_display,medium_display,image_id,"
+                 "description,place_of_origin&limit=1")
+    try:
+        total = get_json(recherche)["pagination"]["total"]
+        oeuvre = get_json(f"{recherche}&page={jour.toordinal() % total + 1}")["data"][0]
+        r = requests.get(f"https://www.artic.edu/iiif/2/{oeuvre['image_id']}/full/1000,/0/default.jpg",
+                         headers=entetes, timeout=30)
+        r.raise_for_status()
+        image = Image.open(io.BytesIO(r.content)).convert("RGB")
+        image.thumbnail((1000, 1400))
+        sortie = io.BytesIO()
+        image.save(sortie, "JPEG", quality=82, optimize=True)
+    except Exception as err:
+        log(f"  ✗ Tableau : {err}")
+        return None
+    notice = nettoyer(oeuvre.get("description") or "", 2500)
+    d = {
+        "image": sortie.getvalue(),
+        "titre": oeuvre["title"],
+        "artiste": oeuvre.get("artist_display", "").replace("\n", ", "),
+        "date": oeuvre.get("date_display", ""),
+        "technique": oeuvre.get("medium_display", ""),
+        "titre_fr": "", "presentation": notice, "a_observer": [],
+    }
+    ia = claude("tableau", f"""Nous sommes le {date_texte}. Rubrique « Le tableau du jour ».
+Œuvre : {d['titre']} — {d['artiste']}, {d['date']} ({d['technique']}).
+Notice du musée (en anglais) : {notice or "non disponible"}
+
+Rédige en français, pour un lecteur curieux mais non spécialiste :
+- "titre_fr" : le titre de l'œuvre en français (son titre français usuel s'il existe) ;
+- "artiste" : l'artiste en français, avec nationalité et dates (ex. « Claude Monet
+  (français, 1840-1926) ») ;
+- "technique" : la technique en français (ex. « Huile sur toile ») ;
+- "presentation" : 3 paragraphes séparés par une ligne vide (180 à 250 mots) : l'artiste
+  et le contexte, ce que l'on voit, pourquoi l'œuvre compte. Appuie-toi sur la notice et
+  sur des faits d'histoire de l'art bien établis, sans rien inventer ;
+- "a_observer" : 3 détails précis à regarder dans le tableau.""",
+        objet({"titre_fr": TEXTE, "artiste": TEXTE, "technique": TEXTE,
+               "presentation": TEXTE, "a_observer": liste(TEXTE)}))
+    if ia:
+        d.update(ia)
+    return d
+
+
 SCHEMA_ARTICLE = objet({"titre": TEXTE, "chapeau": TEXTE, "texte": TEXTE, "source": TEXTE})
 SCHEMA_BREVE = objet({"titre": TEXTE, "texte": TEXTE})
 SCHEMA_RUBRIQUE = objet({"articles": liste(SCHEMA_ARTICLE), "breves": liste(SCHEMA_BREVE)})
@@ -553,6 +605,7 @@ table.prieres .p-heure {{ font-size: 1.05em; font-weight: bold; }}
 ol.choix {{ list-style-type: upper-alpha; margin: .2em 0 1em; }}
 a {{ color: inherit; }}
 img {{ max-width: 100%; }}
+img.tableau {{ max-height: 75vh; box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }}
 """
 
 
@@ -717,6 +770,22 @@ def page_citations(d):
 <p>{e(x['texte'])}</p><p class="source">{e(x['auteur'])}, <i>{e(x['oeuvre'])}</i></p></div>
 <div class="encadre"><h4>Une idée à appliquer — {e(d['idee']['titre'])}</h4>
 <p>{e(d['idee']['texte'])}</p></div>"""
+
+
+def page_tableau(d):
+    titre = d["titre_fr"] or d["titre"]
+    original = f"Titre original : {e(d['titre'])}. " if titre != d["titre"] else ""
+    b = [f"""<h2>Le tableau du jour</h2>
+<p class="centre"><img class="tableau" src="tableau.jpg" alt="{e(titre)}"/></p>
+<h3>{e(titre)}</h3>
+<p class="source">{e(d['artiste'])} · {e(d['date'])}</p>
+<p class="note">{e(d['technique'])}. {original}Art Institute of Chicago, domaine public.</p>"""]
+    b.append(paragraphes(d["presentation"]))
+    if d["a_observer"]:
+        b.append("<div class='encadre'><h4>À observer</h4>" + "".join(
+            f"<p class='breve'><span class='puce'>■</span> {e(x)}</p>"
+            for x in d["a_observer"]) + "</div>")
+    return "\n".join(b)
 
 
 def page_ce_jour(d, date_courte):
@@ -888,6 +957,7 @@ def main():
         f_verset = pool.submit(donnees_verset, jour)
         f_echecs = pool.submit(donnees_echecs)
         f_ce_jour = pool.submit(donnees_ce_jour, jour)
+        f_tableau = pool.submit(donnees_tableau, jour, date_texte)
         f_arabe = pool.submit(donnees_arabe, date_texte)
         f_citations = pool.submit(donnees_citations, date_texte)
 
@@ -914,13 +984,17 @@ def main():
         dossier, anglais, espagnol = f_dossier.result(), f_anglais.result(), f_espagnol.result()
         arabe, echecs, quiz = f_arabe.result(), f_echecs.result(), f_quiz.result()
         citations, ce_jour = f_citations.result(), f_ce_jour.result()
+        tableau = f_tableau.result()
 
     # Pages dans l'ordre du journal (une rubrique sans contenu est simplement omise)
     pages = [(nom, page_actu(nom, actu[nom])) for nom in ("Monde", "Algérie")]
     if dossier:
         pages.append(("Le dossier du jour", page_dossier(dossier)))
-    for nom in ("Économie", "Tech & IA", "Sciences", "Culture", "Sport"):
+    for nom in ("Économie", "Tech & IA", "Sciences", "Culture"):
         pages.append((nom, page_actu(nom, actu[nom])))
+    if tableau:
+        pages.append(("Le tableau du jour", page_tableau(tableau)))
+    pages.append(("Sport", page_actu("Sport", actu["Sport"])))
     if anglais:
         pages.append(("English corner", page_lecon("English corner", NIVEAU_ANGLAIS, anglais)))
     if espagnol:
@@ -951,6 +1025,9 @@ def main():
         livre.set_cover("couverture.png", image, create_page=False)
     livre.add_item(epub.EpubItem(uid="style", file_name="style.css",
                                  media_type="text/css", content=CSS))
+    if tableau:
+        livre.add_item(epub.EpubItem(uid="tableau", file_name="tableau.jpg",
+                                     media_type="image/jpeg", content=tableau["image"]))
     if echecs:
         livre.add_item(epub.EpubItem(uid="echecs", file_name="echecs.svg",
                                      media_type="image/svg+xml",

@@ -2,8 +2,7 @@ name: Journal du matin
 
 on:
   schedule:
-    # 6h30 UTC = 7h30 à Alger (GitHub peut avoir 10 à 30 min de retard)
-    - cron: "30 6 * * *"
+    - cron: "30 5 * * *"
   workflow_dispatch:
 
 permissions:
@@ -13,36 +12,30 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
-  journal:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploiement.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-
-      - name: Installer les dépendances
-        run: pip install -r requirements.txt
-
-      - name: Générer le journal
+      - run: pip install -r requirements.txt
+      - run: python journal.py
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python journal.py
-
-      - uses: actions/configure-pages@v5
-
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: public
+          path: dist
 
-      - name: Publier sur GitHub Pages
-        id: deploiement
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
         uses: actions/deploy-pages@v4

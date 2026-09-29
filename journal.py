@@ -68,7 +68,7 @@ MODELE = "claude-opus-5-5"
 
 # ────────────────────────────────────────────────────────────────────────────────
 
-SORTIE = Path("public")
+SORTIE = Path("dist")
 HTTP = {"User-Agent": "Mozilla/5.0 (MonJournalDuMatin)"}
 
 JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]

@@ -2,7 +2,8 @@ name: Journal du matin
 
 on:
   schedule:
-    - cron: "30 5 * * *"
+    # 6h30 UTC = 7h30 à Alger (GitHub peut avoir 10 à 30 min de retard)
+    - cron: "30 6 * * *"
   workflow_dispatch:
 
 permissions:

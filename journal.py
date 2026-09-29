@@ -60,7 +60,6 @@ SOURCES = {
     ],
     "Sport": [
         "https://www.dzfoot.com/feed",
-        "https://www.lequipe.fr/rss/actu_rss.xml",
     ],
 }
 

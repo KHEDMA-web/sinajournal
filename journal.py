@@ -1048,6 +1048,8 @@ def main():
     # Demande à Apple Livres de respecter nos polices au lieu d'imposer les siennes.
     with zipfile.ZipFile(SORTIE / "journal.epub", "a") as z:
         z.writestr("META-INF/com.apple.ibooks.display-options.xml", OPTIONS_APPLE)
+    # Date de l'édition : le workflow s'en sert pour ne pas refaire le journal du jour.
+    (SORTIE / "date.txt").write_text(jour.isoformat(), encoding="utf-8")
     (SORTIE / "index.html").write_text(
         f"<!doctype html><meta charset='utf-8'><title>{e(TITRE[0])} {e(TITRE[1])}</title>"
         f"<p><a href='journal.epub'>{e(TITRE[0])} {e(TITRE[1])} n° {numero} — "

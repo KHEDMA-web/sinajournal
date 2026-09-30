@@ -2,9 +2,16 @@ name: Journal du matin
 
 on:
   schedule:
-    # 6h30 UTC = 7h30 à Alger (GitHub peut avoir 10 à 30 min de retard)
-    - cron: "30 6 * * *"
-  workflow_dispatch:
+    # GitHub retarde souvent les tâches planifiées, parfois de plusieurs heures.
+    # On tente donc plusieurs fois (heures UTC ; Alger = UTC+1) : la première
+    # tentative qui passe fabrique le journal, les suivantes s'arrêtent aussitôt.
+    - cron: "17 3 * * *"   # 4h17 à Alger
+    - cron: "47 3 * * *"   # 4h47
+    - cron: "17 4 * * *"   # 5h17
+    - cron: "47 4 * * *"   # 5h47
+    - cron: "17 5 * * *"   # 6h17
+    - cron: "47 5 * * *"   # 6h47
+  workflow_dispatch:       # lancement à la main : fabrique toujours le journal
 
 permissions:
   contents: read
@@ -13,26 +20,45 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      deja_fait: ${{ steps.verif.outputs.deja_fait }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Le journal du jour est-il déjà publié ?
+        id: verif
+        run: |
+          aujourdhui=$(TZ=Africa/Algiers date +%F)
+          publie=$(curl -sfL "https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/date.txt" || true)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$publie" = "$aujourdhui" ]; then
+            echo "Journal du $aujourdhui déjà publié : rien à faire."
+            echo "deja_fait=oui" >> "$GITHUB_OUTPUT"
+          else
+            echo "deja_fait=non" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.verif.outputs.deja_fait == 'non'
+        uses: actions/checkout@v4
+      - if: steps.verif.outputs.deja_fait == 'non'
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt
-      - run: python journal.py
+      - if: steps.verif.outputs.deja_fait == 'non'
+        run: pip install -r requirements.txt
+      - if: steps.verif.outputs.deja_fait == 'non'
+        run: python journal.py
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      - uses: actions/upload-pages-artifact@v3
+      - if: steps.verif.outputs.deja_fait == 'non'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
   deploy:
     needs: build
+    if: needs.build.outputs.deja_fait == 'non'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

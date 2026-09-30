@@ -44,7 +44,7 @@ Tout est en haut de `journal.py` :
 Mise en page inspirée de Signal Matin (github.com/sosoj92/signal-matin, licence MIT).
 
 ## Bon à savoir
-- GitHub peut lancer le script avec 10 à 30 min de retard, d'où le lancement à 7h30 pour une lecture à 8h.
+- GitHub retarde parfois les tâches planifiées de plusieurs heures : le workflow tente sa chance plusieurs fois entre 4h17 et 6h47 (heure d’Alger). La première tentative réussie publie le journal, les suivantes s’arrêtent aussitôt (sans appel à Claude).
 - GitHub met en pause les tâches planifiées après 60 jours sans activité sur le dépôt : un petit commit de temps en temps suffit.
 - Le dépôt étant public, le lien du journal l'est aussi (mais personne ne le connaît).
 

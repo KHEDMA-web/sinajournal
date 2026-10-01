@@ -31,7 +31,8 @@ TITRE = ("Sina", "Journal")          # partie grasse, partie italique
 DEVISE = "Un matin informé, sans commencer par défiler."
 EDITION = "Édition d'Alger"
 DATE_PREMIER_NUMERO = dt.date(2026, 9, 29)   # pour numéroter les éditions
-MODELE = "claude-sonnet-5-5"          # modèle Claude utilisé
+UTILISER_CLAUDE = True                # False = version 100 % gratuite, sans API Claude
+MODELE = "claude-sonnet-5-5"          # modèle Claude utilisé (ou "claude-haiku-4-5", 2× moins cher)
 EFFORT = "low"                        # low = moins cher ; medium / high = plus soigné
 VILLE = {"nom": "Alger", "lat": 36.75, "lon": 3.06}
 FUSEAU = "Africa/Algiers"
@@ -420,13 +421,21 @@ Rédige en français :
 N'invente aucun fait, chiffre ou citation absent des dépêches.""", SCHEMA_RUBRIQUE)
     if ia:
         return ia
-    # Version simplifiée (sans clé API) : titres et extraits bruts.
+    # Version gratuite (sans Claude) : revue de presse avec extraits et liens.
     return {
         "articles": [{"titre": a["titre"], "chapeau": "", "texte": a["resume"],
-                      "source": a["source"]} for a in articles[:developpes]],
+                      "source": a["source"], "lien": a["lien"]}
+                     for a in articles[:developpes]],
         "breves": [{"titre": a["titre"], "texte": ""}
                    for a in articles[developpes:developpes + BREVES]],
     }
+
+
+def une_gratuite(toutes):
+    """Une sans Claude : la dépêche la plus récente en manchette, les suivantes en résumé."""
+    tete = toutes[0]
+    return {"manchette": {"titre": tete["titre"], "chapeau": tete["resume"]},
+            "essentiel": [a["titre"] for a in toutes[1:6]]}
 
 
 def donnees_une(toutes, date_texte):
@@ -661,7 +670,7 @@ l'annonce officielle.</p></div>""")
 <p class="ar" lang="ar">{e(verset['arabe'])}</p>
 <p class="vo">{e(verset['francais'])}</p>
 <p class="source">{e(verset['reference'])} — trad. Hamidullah</p></div>""")
-    if une:
+    if une and "mot_du_jour" in une:  # rubriques rédigées par Claude
         mot, chiffre = une["mot_du_jour"], une["chiffre_du_jour"]
         b.append(f"""<div class="encadre"><h4>Chiffre du jour</h4>
 <p class="gros">{e(chiffre['chiffre'])}</p><p>{e(chiffre['explication'])}</p></div>
@@ -689,6 +698,8 @@ def page_actu(nom, d):
         if a["chapeau"]:
             b.append(f"<p class='chapeau'>{e(a['chapeau'])}</p>")
         b.append(paragraphes(a["texte"]))
+        if a.get("lien"):
+            b.append(f"<p class='note'><a href='{e(a['lien'])}'>Lire l'article complet →</a></p>")
     if d["breves"]:
         breves = []
         for x in d["breves"]:
@@ -942,11 +953,11 @@ def main():
     numero = max(1, (jour - DATE_PREMIER_NUMERO).days + 1)
     log(f"Sina Journal n° {numero} — {date_texte}")
 
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    if UTILISER_CLAUDE and os.environ.get("ANTHROPIC_API_KEY"):
         import anthropic
         _client = anthropic.Anthropic(max_retries=6)
     else:
-        log("Pas de clé ANTHROPIC_API_KEY : version simplifiée (titres bruts, pas de leçons).")
+        log("Version gratuite, sans Claude : revue de presse, sans leçons ni quiz.")
 
     utc = maintenant.astimezone(dt.timezone.utc)
     with ThreadPoolExecutor(max_workers=10) as pool:
@@ -978,7 +989,8 @@ def main():
         c = {
             "numero": numero, "date_texte": date_texte,
             "meteo": f_meteo.result(), "priere": f_priere.result(),
-            "verset": f_verset.result(), "une": f_une.result(),
+            "verset": f_verset.result(), "une": f_une.result() or (
+                une_gratuite(toutes) if toutes else None),
         }
         actu = {nom: f.result() for nom, f in f_actu.items()}
         dossier, anglais, espagnol = f_dossier.result(), f_anglais.result(), f_espagnol.result()
